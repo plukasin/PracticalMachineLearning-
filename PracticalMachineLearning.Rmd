@@ -1,0 +1,118 @@
+---
+title: "Practical Machine Learning/ Prediction Assignment"
+output: html_document
+---
+
+## Background
+Using devices such as Jawbone Up, Nike FuelBand, and Fitbit it is now possible to collect a large amount of data about personal activity relatively inexpensively. These type of devices are part of the quantified self movement – a group of enthusiasts who take measurements about themselves regularly to improve their health, to find patterns in their behavior, or because they are tech geeks. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, your goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants. They were asked to perform barbell lifts correctly and incorrectly in 5 different ways. More information is available from the website here: <http://groupware.les.inf.puc-rio.br/har> (see the section on the Weight Lifting Exercise Dataset).
+
+
+##Data
+
+The training data for this project are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv>
+
+The test data are available here:
+
+<https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv>
+
+
+```{r}
+downloadcsv <- function(url, nastrings) {
+    temp <- tempfile()
+    download.file(url, temp, method = "curl")
+    data <- read.csv(temp, na.strings = nastrings)
+    unlink(temp)
+    return(data)
+}
+
+trainurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+trainingOrg <- downloadcsv(trainurl, c("", "NA", "#DIV/0!"))
+
+testurl <- "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+testingOrg <- downloadcsv(testurl, c("", "NA", "#DIV/0!"))
+```
+
+Check the training and testing data 
+
+```{r}
+dim(trainingOrg)
+dim(testingOrg)
+```
+
+Load libraries 
+```{r}
+library(caret)
+library(randomForest)
+library(grDevices)
+```
+
+## Data Preprocessing 
+
+ - Remove variables (columns) where we find too many rows with NA
+```{r}
+trainingComp <- trainingOrg[ , colSums(is.na(trainingOrg)) == 0]
+dim(trainingComp)
+```
+
+-  Remove variables that we do not expect to be relevant (such as username, timestamp, etc..)
+
+```{r}
+
+trainingCore <- trainingComp[, -which(names(trainingComp) %in% c('X', 'user_name', 'raw_timestamp_part_1', 'raw_timestamp_part_2', 'cvtd_timestamp', 'new_window', 'num_window'))]
+dim(trainingCore)
+```
+
+- Review if there are any variables strongly correlated. To be fancy we can visualize correlation with heat map.  
+
+```{r}
+predcorr <- cor(trainingCore[, names(trainingCore) != 'classe'])
+pal <- colorRampPalette(c('blue', 'white', 'red'))(n = 199)
+heatmap(predcorr, col = pal)
+```
+
+- As shown above most of variables are not strongly correlated. 
+- We can remove those that are correlated in 90% or more.
+
+```{r}
+corrMatrix <- cor(na.omit(trainingCore[sapply(trainingCore, is.numeric)])) ## correlation table
+trainingUncore <- trainingCore[,-findCorrelation(corrMatrix, cutoff = .90, verbose = TRUE)] ## use table to remove variables strongly correlated 
+dim(trainingUncore)
+```
+
+In the end we will workj with all 19622 samples and use 46 variables. 
+
+## Predictive Model
+
+Split data into training and testing
+```{r}
+set.seed(1210)
+inTrain <- createDataPartition(y=trainingUncore$classe, p=0.7, list=FALSE)
+training <- trainingUncore[inTrain,] 
+testing <- trainingUncore[-inTrain,]
+dim(training)
+dim(testing)
+```
+
+I will use Random Forest algorithm. I will limit number of trees to 200. 
+
+```{r}
+model <- randomForest(classe~.,data=training,ntree=200, importance=TRUE)
+model 
+```
+
+Crossvalidate the model using remaining 30% of data.
+```{r}
+predictCrossVal <- predict(model, testing)
+confusionMatrix(testing$classe, predictCrossVal)
+```
+This is a good model with 99% accuracy. 
+
+## Testing Model on another data set
+Test model on the test data set downloaded frmo the second file:
+```{r}
+answers <- predict(model, testingOrg)
+answers
+```
+
